@@ -4,7 +4,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy as sp
-from scipy.sparse import bsr_matrix
+from scipy.sparse import coo_array, coo_matrix
 
 np.set_printoptions(linewidth=800, formatter={"float": lambda x: f"{x:10.4g}"})
 
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     boundary_conditions = [[0, 0, 0, 1],
                            [1, 2, 0, 1]]
 
-    num_ele = 100
+    num_ele = 30000
 
     # create elements
     num_node = 2 * num_ele + 1
@@ -147,6 +147,8 @@ if __name__ == "__main__":
     idx_node = np.array([np.arange(0, num_node - 1, 2), np.arange(1, num_node, 2), np.arange(2, num_node + 1, 2)]).T
 
     print(f"-------- assembling local matrix")
+    time_start = time.time()
+
     K_loc = np.zeros((num_ele, 3, 3))
     F_loc = np.zeros((num_ele, 3, 1))
 
@@ -158,64 +160,81 @@ if __name__ == "__main__":
         if i_ele == num_ele - 1 and boundary_conditions[1][1] == 2:
             robin_bc = boundary_conditions[1]
 
-        time_start = time.time()
         K_ele, F_ele = assemble_local_matrix(x_ele[i_ele], robin_bc)
-        time_end = time.time()
 
-        print(f"---- element: {i_ele: 6d}, time: {time_end - time_start:.6f}")
+        # print(f"---- element: {i_ele: 6d}")
         # print(f"mat K: \n{K_ele}")
         # print(f"mat F: \n{F_ele}")
 
         K_loc[i_ele] = K_ele
         F_loc[i_ele] = F_ele
 
+    time_end = time.time()
+    print(f"time elapsed: {time_end - time_start:.6f}")
+
     print(f"-------- assembling global matrix")
-    K = np.zeros((num_node, num_node))
-    F = np.zeros((num_node, 1))
+    time_start = time.time()
+
+    K = coo_matrix((num_node, num_node))
+    F = coo_array((num_node, 1))
 
     # K_glb = np.zeros((num_node, num_node, num_node))
     # F_glb = np.zeros((num_node, num_node, 1))
+    time_sorting = 0
+    time_adding = 0
     for i_ele in range(num_ele):
         idx_ele = idx_node[i_ele]
 
-        row = np.array([idx_ele[0], idx_ele[1], idx_ele[2]])
-        col = np.array([0, 1, 2])
-        data = np.array([1, 1, 1])
-        L_mat = bsr_matrix((data, (row, col)), shape=(num_node, 3))
+        time_sorting_start = time.time()
 
-        time_start = time.time()
-        K_ele = L_mat @ K_loc[i_ele] @ L_mat.T
-        F_ele = L_mat @ F_loc[i_ele]
+        row_K = np.array([idx_ele[0], idx_ele[0], idx_ele[0],
+                          idx_ele[1], idx_ele[1], idx_ele[1],
+                          idx_ele[2], idx_ele[2], idx_ele[2]])
+        col_K = np.array([idx_ele[0], idx_ele[1], idx_ele[2],
+                          idx_ele[0], idx_ele[1], idx_ele[2],
+                          idx_ele[0], idx_ele[1], idx_ele[2]])
+        K_ele = coo_matrix((K_loc[i_ele].flatten(), (row_K, col_K)), shape=(num_node, num_node))
+
+        row_F = np.array([idx_ele[0], idx_ele[1], idx_ele[2]])
+        F_ele = coo_matrix((F_loc[i_ele].flatten(), (row_F, [0, 0, 0])), shape=(num_node, 1))
         # K_glb[i_ele] = K_ele
         # F_glb[i_ele] = F_ele
-        time_end = time.time()
+
+        time_sorting_end = time.time()
+        time_sorting = time_sorting + time_sorting_end - time_sorting_start
 
         K = K + K_ele
         F = F + F_ele
 
-        print(f"---- element: {i_ele: 6d}, time: {time_end - time_start:.6f}")
+        time_adding = time_adding + time.time() - time_sorting_end
 
-    print(f"global mat K: \n{K}")
-    print(f"global mat F: \n{F}")
+        # print(f"---- element: {i_ele: 6d}")
+
+    time_end = time.time()
+    print(f"time elapsed: {time_end - time_start:.6f}, sorting: {time_sorting:.6f}, adding: {time_adding:.6f}")
+
+    # print(f"global mat K: \n{K}")
+    # print(f"global mat F: \n{F}")
 
     print(f"-------- incorporating 'essential' boundary conditions")
     for bc in boundary_conditions:
         if bc[1] == 0:
             if bc[0] == 0:
-                K = np.delete(K, [0], axis=0)
-                F = np.delete(F, [0], axis=0)
-                F = F - bc[3] * np.transpose([K[:, 0]])
-                K = np.delete(K, [0], axis=1)
+                K = K[1:, :]
+                F = F[1:, :]
+                F = F - bc[3] * K[:, 0]
+                K = K[:, 1:]
             if bc[0] == 1:
-                K = np.delete(K, [-1], axis=0)
-                F = np.delete(F, [-1], axis=0)
-                F = F - bc[3] * np.transpose([K[:, -1]])
-                K = np.delete(K, [-1], axis=1)
-    print(f"global mat K: \n{K}")
-    print(f"global mat F: \n{F}")
+                K = K[0: -1, :]
+                F = F[0: -1, :]
+                F = F - bc[3] * K[:, -1]
+                K = K[:, 0: -1]
+
+    # print(f"global mat K: \n{K}")
+    # print(f"global mat F: \n{F}")
 
     print(f"-------- solving global matrix")
-    u = np.linalg.solve(K, F)
+    u = sp.sparse.linalg.spsolve(K, F)
     for bc in boundary_conditions:
         if bc[1] == 0:
             if bc[0] == 0:
@@ -225,7 +244,7 @@ if __name__ == "__main__":
 
     print(f"u: \n{u}")
 
-    plt.plot(x_node, u.T[0], linestyle='None', marker='o', color='blue')
+    plt.plot(x_node, u, linestyle='None', marker='o', color='blue')
 
     y_ext = lambda x: x + (math.exp(2 - x) + math.exp(x)) / (1 + math.exp(2))
     y_vfunc = np.vectorize(y_ext)

@@ -1,8 +1,10 @@
 import math
+import time
 
 import numpy as np
-import scipy as sp
 import matplotlib.pyplot as plt
+import scipy as sp
+from scipy.sparse import bsr_matrix
 
 np.set_printoptions(linewidth=800, formatter={"float": lambda x: f"{x:10.4g}"})
 
@@ -134,7 +136,7 @@ if __name__ == "__main__":
     boundary_conditions = [[0, 0, 0, 1],
                            [1, 2, 0, 1]]
 
-    num_ele = 3000
+    num_ele = 100
 
     # create elements
     num_node = 2 * num_ele + 1
@@ -156,11 +158,13 @@ if __name__ == "__main__":
         if i_ele == num_ele - 1 and boundary_conditions[1][1] == 2:
             robin_bc = boundary_conditions[1]
 
+        time_start = time.time()
         K_ele, F_ele = assemble_local_matrix(x_ele[i_ele], robin_bc)
+        time_end = time.time()
 
-        print(f"---- element: {i_ele}")
-        print(f"mat K: \n{K_ele}")
-        print(f"mat F: \n{F_ele}")
+        print(f"---- element: {i_ele: 6d}, time: {time_end - time_start:.6f}")
+        # print(f"mat K: \n{K_ele}")
+        # print(f"mat F: \n{F_ele}")
 
         K_loc[i_ele] = K_ele
         F_loc[i_ele] = F_ele
@@ -173,18 +177,23 @@ if __name__ == "__main__":
     # F_glb = np.zeros((num_node, num_node, 1))
     for i_ele in range(num_ele):
         idx_ele = idx_node[i_ele]
-        L_mat = np.zeros((num_node, 3))
-        L_mat[idx_ele[0]][0] = 1
-        L_mat[idx_ele[1]][1] = 1
-        L_mat[idx_ele[2]][2] = 1
 
-        K_ele = np.matmul(np.matmul(L_mat, K_loc[i_ele]), L_mat.T)
-        F_ele = np.matmul(L_mat, F_loc[i_ele])
+        row = np.array([idx_ele[0], idx_ele[1], idx_ele[2]])
+        col = np.array([0, 1, 2])
+        data = np.array([1, 1, 1])
+        L_mat = bsr_matrix((data, (row, col)), shape=(num_node, 3))
+
+        time_start = time.time()
+        K_ele = L_mat @ K_loc[i_ele] @ L_mat.T
+        F_ele = L_mat @ F_loc[i_ele]
         # K_glb[i_ele] = K_ele
         # F_glb[i_ele] = F_ele
+        time_end = time.time()
 
         K = K + K_ele
         F = F + F_ele
+
+        print(f"---- element: {i_ele: 6d}, time: {time_end - time_start:.6f}")
 
     print(f"global mat K: \n{K}")
     print(f"global mat F: \n{F}")

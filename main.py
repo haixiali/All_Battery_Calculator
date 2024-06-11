@@ -4,7 +4,6 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy as sp
-from scipy.sparse import coo_array, coo_matrix
 
 np.set_printoptions(linewidth=800, formatter={"float": lambda x: f"{x:10.4g}"})
 
@@ -136,7 +135,7 @@ if __name__ == "__main__":
     boundary_conditions = [[0, 0, 0, 1],
                            [1, 2, 0, 1]]
 
-    num_ele = 30000
+    num_ele = 20_000
 
     # create elements
     num_node = 2 * num_ele + 1
@@ -146,7 +145,7 @@ if __name__ == "__main__":
     x_node = np.arange(s0, s1 + h_ele * 0.1, h_ele * 0.5)
     idx_node = np.array([np.arange(0, num_node - 1, 2), np.arange(1, num_node, 2), np.arange(2, num_node + 1, 2)]).T
 
-    print(f"-------- assembling local matrix")
+    print(f"-------- assembling local matrix, element number: {num_ele}")
     time_start = time.time()
 
     K_loc = np.zeros((num_ele, 3, 3))
@@ -175,50 +174,67 @@ if __name__ == "__main__":
     print(f"-------- assembling global matrix")
     time_start = time.time()
 
-    K = coo_matrix((num_node, num_node))
-    F = coo_array((num_node, 1))
+    K = sp.sparse.csr_matrix((num_node, num_node))
+    F = sp.sparse.csr_matrix((num_node, 1))
 
     # K_glb = np.zeros((num_node, num_node, num_node))
     # F_glb = np.zeros((num_node, num_node, 1))
+    time_sum1 = 0
+    time_sum2 = 0
     time_sorting = 0
     time_adding = 0
     for i_ele in range(num_ele):
         idx_ele = idx_node[i_ele]
 
-        time_sorting_start = time.time()
+        time_sorting1 = time.time()
 
-        row_K = np.array([idx_ele[0], idx_ele[0], idx_ele[0],
-                          idx_ele[1], idx_ele[1], idx_ele[1],
-                          idx_ele[2], idx_ele[2], idx_ele[2]])
-        col_K = np.array([idx_ele[0], idx_ele[1], idx_ele[2],
-                          idx_ele[0], idx_ele[1], idx_ele[2],
-                          idx_ele[0], idx_ele[1], idx_ele[2]])
-        K_ele = coo_matrix((K_loc[i_ele].flatten(), (row_K, col_K)), shape=(num_node, num_node))
+        row_ptr = np.array([0])
+        for idx in idx_ele:
+            gap = idx - len(row_ptr) + 1
+            if gap > 0:
+                row_ptr = np.concatenate((row_ptr, [row_ptr[-1]] * gap))
 
-        row_F = np.array([idx_ele[0], idx_ele[1], idx_ele[2]])
-        F_ele = coo_matrix((F_loc[i_ele].flatten(), (row_F, [0, 0, 0])), shape=(num_node, 1))
-        # K_glb[i_ele] = K_ele
-        # F_glb[i_ele] = F_ele
+            row_ptr = np.concatenate((row_ptr, [row_ptr[-1] + 1]))
+            # row_ptr.append(row_ptr[-1] + 1)
 
-        time_sorting_end = time.time()
-        time_sorting = time_sorting + time_sorting_end - time_sorting_start
+        time_sorting2 = time.time()
+
+        row_ptr = np.concatenate((row_ptr, [row_ptr[-1]] * (num_node - len(row_ptr) + 1)))
+
+        row_ptr = np.array(row_ptr.flatten())
+        F_ele_loc = F_loc[i_ele].flatten()
+        F_ele = sp.sparse.csr_matrix((F_ele_loc, [0, 0, 0], row_ptr), shape=(num_node, 1))
+
+        col_idx = np.array([idx_ele[0], idx_ele[1], idx_ele[2]] * 3)
+        K_ele_loc = K_loc[i_ele].flatten()
+        K_ele = sp.sparse.csr_matrix((K_ele_loc, col_idx, 3 * row_ptr), shape=(num_node, num_node))
+
+        time_sorting3 = time.time()
+
+        time_sum1 = time_sum1 + time_sorting2 - time_sorting1
+        time_sum2 = time_sum2 + time_sorting3 - time_sorting2
+        time_sorting = time_sorting + time_sorting3 - time_sorting1
 
         K = K + K_ele
         F = F + F_ele
 
-        time_adding = time_adding + time.time() - time_sorting_end
+        time_adding = time_adding + time.time() - time_sorting3
 
         # print(f"---- element: {i_ele: 6d}")
 
     time_end = time.time()
-    print(f"time elapsed: {time_end - time_start:.6f}, sorting: {time_sorting:.6f}, adding: {time_adding:.6f}")
+    print(
+        f"time elapsed: {time_end - time_start:.6f}, sorting: {time_sorting:.6f}, "
+        f"sorting1: {time_sum1:.6f}, sorting2: {time_sum2:.6f}, adding: {time_adding:.6f}")
 
-    # print(f"global mat K: \n{K}")
-    # print(f"global mat F: \n{F}")
+    # print(f"global mat K: \n{K.toarray()}")
+    # print(f"global mat F: \n{F.toarray()}")
 
     print(f"-------- incorporating 'essential' boundary conditions")
     for bc in boundary_conditions:
         if bc[1] == 0:
+            K = K.tocsr(copy=False)
+            F = F.tocsr(copy=False)
             if bc[0] == 0:
                 K = K[1:, :]
                 F = F[1:, :]

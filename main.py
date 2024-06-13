@@ -135,7 +135,7 @@ if __name__ == "__main__":
     boundary_conditions = [[0, 0, 0, 1],
                            [1, 2, 0, 1]]
 
-    num_ele = 10_000
+    num_ele = 10
 
     # create elements
     num_node = 2 * num_ele + 1
@@ -179,41 +179,42 @@ if __name__ == "__main__":
 
     # K_glb = np.zeros((num_node, num_node, num_node))
     # F_glb = np.zeros((num_node, num_node, 1))
+    idx_ele_pre = [0, 1, 2]
+    F_row_ptr_arr = np.array([0] + [3] * num_node, dtype=int)
+
     time_sum1 = 0
     time_sum2 = 0
     time_sum3 = 0
     time_sorting = 0
     time_adding = 0
     for i_ele in range(num_ele):
-        idx_ele = idx_node[i_ele]
-
         time_sorting0 = time.time()
 
-        F_row_ptr = [0]
-        K_row_ptr = [0]
-        # row_ptr = np.array([0])
-        for idx in idx_ele:
-            gap = idx - len(F_row_ptr) + 1
-            if gap > 0:
-                # row_ptr = np.concatenate((row_ptr, [row_ptr[-1]] * gap))
-                F_row_ptr = F_row_ptr + [F_row_ptr[-1]] * gap
-                K_row_ptr = K_row_ptr + [K_row_ptr[-1]] * gap
+        idx_ele = idx_node[i_ele]
+        idx_ele_list = idx_ele.tolist()
 
-            # row_ptr = np.concatenate((row_ptr, [row_ptr[-1] + 1]))
-            F_row_ptr = F_row_ptr + [F_row_ptr[-1] + 1]
-            K_row_ptr = K_row_ptr + [K_row_ptr[-1] + 3]
+        cut_head = min(idx_ele_pre[0], idx_ele_list[0]) + 1
+        cut_tail = max(idx_ele_pre[-1], idx_ele_list[-1]) + 1
 
-        # row_ptr = np.concatenate((row_ptr, [row_ptr[-1]] * (num_node - len(row_ptr) + 1)))
-        F_row_ptr = F_row_ptr + [F_row_ptr[-1]] * (num_node - len(F_row_ptr) + 1)
-        K_row_ptr = K_row_ptr + [K_row_ptr[-1]] * (num_node - len(K_row_ptr) + 1)
+        head_gap = idx_ele_list[0] - idx_ele_pre[0]
+        heading = [0] * head_gap if head_gap > 0 else []
+        tail_gap = idx_ele_list[-1] - idx_ele_pre[-1]
+        tailing = [3] * (-1 * tail_gap) if tail_gap < 0 else []
+
+        mid = [1] * (idx_ele_list[1] - idx_ele_list[0]) + [2] * (idx_ele_list[2] - idx_ele_list[1])
+
+        mid_row = np.array(heading + mid + tailing, dtype=int)
+
+        idx_ele_pre = idx_ele_list
+
+        F_row_ptr_arr[cut_head: cut_tail] = mid_row
+        K_row_ptr_arr = 3 * F_row_ptr_arr
 
         time_sorting1 = time.time()
 
-        F_row_ptr_arr = np.array(F_row_ptr, dtype=float, copy=False)
         F_col_idx = [0, 0, 0]
         F_ele_loc = F_loc[i_ele].flatten()
 
-        K_row_ptr_arr = np.array(K_row_ptr, dtype=float, copy=False)
         K_col_idx = [idx_ele[0], idx_ele[1], idx_ele[2]] * 3
         K_ele_loc = K_loc[i_ele].flatten()
 

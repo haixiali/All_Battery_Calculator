@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy as sp
 
-np.set_printoptions(linewidth=800, formatter={"float": lambda x: f"{x:10.4g}"})
+np.set_printoptions(linewidth=800, formatter={"float": lambda x: f"{x:10.6g}"})
 
 quadrature_weights = np.array(
     [
@@ -50,15 +50,15 @@ quadrature_xi_xi = quadrature_xi * quadrature_xi
 
 # domain functions
 def b_fun(x):
-    return 0
+    return -2 * x
 
 
 def c_fun(x):
-    return 1
+    return 0
 
 
 def f_fun(x):
-    return x
+    return 0
 
 
 b_vfun = np.vectorize(b_fun)
@@ -132,10 +132,9 @@ if __name__ == "__main__":
     s0 = 0
     s1 = 1
     # B.C. on left-most & right-most nodes, [loc, type, rho, f], loc=0 for left, rho=0 for Dirichlet B.C.
-    boundary_conditions = [[0, 0, 0, 1],
-                           [1, 2, 0, 1]]
+    boundary_conditions = [[0, 2, 0, 1], [1, 0, 0, 0]]
 
-    num_ele = 10
+    num_ele = 4
 
     # create elements
     num_node = 2 * num_ele + 1
@@ -154,10 +153,14 @@ if __name__ == "__main__":
     for i_ele in range(num_ele):
 
         robin_bc = None
-        if i_ele == 0 and boundary_conditions[0][1] == 2:
-            robin_bc = boundary_conditions[0]
-        if i_ele == num_ele - 1 and boundary_conditions[1][1] == 2:
-            robin_bc = boundary_conditions[1]
+        if i_ele == 0:
+            for bc in boundary_conditions:
+                if bc[0] == 0 and bc[1] == 2:
+                    robin_bc = bc
+        elif i_ele == num_ele - 1:
+            for bc in boundary_conditions:
+                if bc[0] == 1 and bc[1] == 2:
+                    robin_bc = bc
 
         K_ele, F_ele = assemble_local_matrix(x_ele[i_ele], robin_bc)
 
@@ -249,8 +252,6 @@ if __name__ == "__main__":
     print(f"-------- incorporating 'essential' boundary conditions")
     for bc in boundary_conditions:
         if bc[1] == 0:
-            K = K.tocsr(copy=False)
-            F = F.tocsr(copy=False)
             if bc[0] == 0:
                 K = K[1:, :]
                 F = F[1:, :]
@@ -262,25 +263,27 @@ if __name__ == "__main__":
                 F = F - bc[3] * K[:, -1]
                 K = K[:, 0: -1]
 
-    # print(f"global mat K: \n{K}")
-    # print(f"global mat F: \n{F}")
+    print(f"global mat K: \n{K.toarray()}")
+    print(f"global mat F: \n{F.toarray()}")
 
     print(f"-------- solving global matrix")
     u = sp.sparse.linalg.spsolve(K, F)
+
+    print(f"-------- appending Dirichlet boundary conditions")
     for bc in boundary_conditions:
         if bc[1] == 0:
             if bc[0] == 0:
                 u = np.insert(u, 0, bc[3], axis=0)
             if bc[0] == 1:
-                u = np.insert(u, -1, bc[3], axis=0)
+                u = np.insert(u, num_node - 1, bc[3], axis=0)
 
     print(f"u: \n{u}")
 
     plt.plot(x_node, u, linestyle='None', marker='o', color='blue')
 
-    y_ext = lambda x: x + (math.exp(2 - x) + math.exp(x)) / (1 + math.exp(2))
-    y_vfunc = np.vectorize(y_ext)
-    x_test = np.arange(s0, s1 + 0.001, 0.01)
-    y_test = y_vfunc(x_test)
-    plt.plot(x_test, y_test, linestyle='-', marker='None', color='red')
+    # y_ext = lambda x: x + (math.exp(2 - x) + math.exp(x)) / (1 + math.exp(2))
+    # y_vfunc = np.vectorize(y_ext)
+    # x_test = np.arange(s0, s1 + 0.001, 0.01)
+    # y_test = y_vfunc(x_test)
+    # plt.plot(x_test, y_test, linestyle='-', marker='None', color='red')
     plt.show()

@@ -13,4 +13,5 @@ def f(x, y):
 
 
 if __name__ == "__main__":
-    gmsh = GmshMesh("./t1.msh")
+    gmsh_mesh = GmshMesh("./t1.msh")
+    print(gmsh_mesh)

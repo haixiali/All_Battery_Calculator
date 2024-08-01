@@ -11,6 +11,10 @@ class Element_D1O2(object):
         self.idx = idx
         self.nodes = [node0, node1, node2]
 
+        self._xi_a = 0.5 * (self.x0 + self.x2) - self.x1
+        self._xi_b = 0.5 * (self.x2 - self.x0)
+        self._xi_c = self.x1
+
     @property
     def node0(self):
         return self.nodes[0]
@@ -49,6 +53,18 @@ class Element_D1O2(object):
     @property
     def boundary_node_idxes(self):
         return [n.idx for n in self.boundary_nodes]
+
+    @property
+    def x0(self):
+        return self.node0.x
+
+    @property
+    def x1(self):
+        return self.node1.x
+
+    @property
+    def x2(self):
+        return self.node2.x
 
     def __repr__(self):
         return f"idx: {self.idx}, nodes: [{self.node0_idx}, {self.node1_idx}, {self.node2_idx}]"
